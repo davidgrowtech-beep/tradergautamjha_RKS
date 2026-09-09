@@ -118,6 +118,12 @@ src="https://www.facebook.com/tr?id=2519047125260621&ev=PageView&noscript=1"
     animation:ctaPulse 2.2s infinite;
   }
   .cta-btn:active{transform:scale(.97);}
+  a.cta-btn{text-decoration:none;}
+  .inapp-notice{
+    background:rgba(255,193,7,.12);border:1px solid rgba(255,193,7,.4);
+    color:#ffe9a8;font-size:12px;line-height:1.5;border-radius:12px;
+    padding:10px 12px;margin:14px 0;text-align:center;
+  }
   @keyframes ctaPulse{
     0%,100%{box-shadow:0 10px 30px rgba(37,211,102,.35);}
     50%{box-shadow:0 10px 40px rgba(37,211,102,.6);}
@@ -181,11 +187,15 @@ src="https://www.facebook.com/tr?id=2519047125260621&ev=PageView&noscript=1"
     <div class="stat"><b>100%</b><span>Free to Join</span></div>
   </div>
 
+  <div id="inAppNotice" class="inapp-notice" style="display:none;">
+    ⚠️ You're inside an app browser. For Telegram to open properly, tap <b><span id="inAppMenuHint">⋮</span></b> above and choose <b>"Open in Browser"</b>, then tap Join again.
+  </div>
+
   <div class="cta-block">
-    <button class="cta-btn" id="joinBtn">
+    <a class="cta-btn" id="joinBtn" href="https://t.me/+1_jvMqUZHUQ3N2Vl" rel="noopener">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.99 15.5l-.35 4.93c.5 0 .72-.22.98-.47l2.35-2.24 4.87 3.57c.9.5 1.53.24 1.77-.83L23 4.2c.32-1.28-.46-1.79-1.33-1.47L1.1 10.42c-1.25.5-1.23 1.2-.22 1.5l5.63 1.76L19.9 6.5c.6-.4 1.15-.18.7.24z"/></svg>
       Join Free on Telegram
-    </button>
+    </a>
     <p class="cta-sub">👆 Tap to join <b>instantly</b> — no signup, no cost</p>
   </div>
 
@@ -204,10 +214,10 @@ src="https://www.facebook.com/tr?id=2519047125260621&ev=PageView&noscript=1"
   <div class="testi fadein"><div class="stars">★★★★★</div><p>Consistent, clear and honest updates every single day. Highly recommend joining.</p><div class="name">— Priya K., Member</div></div>
 
   <div class="cta-block" style="position:static;">
-    <button class="cta-btn" id="joinBtn2">
+    <a class="cta-btn" id="joinBtn2" href="https://t.me/+1_jvMqUZHUQ3N2Vl" rel="noopener">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.99 15.5l-.35 4.93c.5 0 .72-.22.98-.47l2.35-2.24 4.87 3.57c.9.5 1.53.24 1.77-.83L23 4.2c.32-1.28-.46-1.79-1.33-1.47L1.1 10.42c-1.25.5-1.23 1.2-.22 1.5l5.63 1.76L19.9 6.5c.6-.4 1.15-.18.7.24z"/></svg>
       Join Trader Gautam Jha Now
-    </button>
+    </a>
     <p class="cta-sub">🔥 Join <b>50,000+</b> traders learning for free</p>
   </div>
 
@@ -223,11 +233,11 @@ src="https://www.facebook.com/tr?id=2519047125260621&ev=PageView&noscript=1"
   var DEDUP_KEY = "gautamjha_lead_sent";
   var pageLoadTime = Date.now();
   var hasInteracted = false;
-  var minDwellMs = 1500; // require some genuine time-on-page before allowing a fire
+  var minDwellMs = 1500; // used only to decide whether to log a Lead event, never blocks navigation
 
-  // Human interaction signals (bot filtering)
-  ["scroll","touchstart","mousemove","click"].forEach(function(evt){
-    window.addEventListener(evt, function(){ hasInteracted = true; }, {passive:true, once:false});
+  // Human interaction signals (used for pixel-event quality only, not for gating the redirect)
+  ["scroll","touchstart","mousemove"].forEach(function(evt){
+    window.addEventListener(evt, function(){ hasInteracted = true; }, {passive:true});
   });
 
   function alreadySent(){
@@ -237,40 +247,72 @@ src="https://www.facebook.com/tr?id=2519047125260621&ev=PageView&noscript=1"
     try { sessionStorage.setItem(DEDUP_KEY, "1"); } catch(e){}
   }
 
-  function handleJoin(e){
-    e.preventDefault();
-    if (!e.isTrusted) return; // ignore synthetic/programmatic clicks
-
+  function fireLeadIfGenuine(){
+    if (alreadySent()) return;
     var dwell = Date.now() - pageLoadTime;
-    var genuineClick = hasInteracted || dwell > minDwellMs;
-
-    if (alreadySent()) {
-      window.location.href = TELEGRAM_LINK;
-      return;
+    var genuine = hasInteracted || dwell > minDwellMs;
+    if (!genuine) return;
+    markSent();
+    if (typeof fbq === "function") {
+      fbq('track', 'Lead', {
+        content_name: 'Learn with Trader Gautam Jha',
+        content_category: 'Telegram Join'
+      });
     }
+  }
 
-    if (genuineClick) {
-      markSent();
-      if (typeof fbq === "function") {
-        fbq('track', 'Lead', {
-          content_name: 'Learn with Trader Gautam Jha',
-          content_category: 'Telegram Join'
-        });
-      }
-      // small flush delay so the pixel beacon has time to send before navigation
-      setTimeout(function(){
-        window.location.href = TELEGRAM_LINK;
-      }, 250);
-    } else {
-      // very unlikely genuine bot-speed click path — still allow navigation, skip event
-      window.location.href = TELEGRAM_LINK;
-    }
+  // IMPORTANT: the buttons are now real <a href="https://t.me/..."> links.
+  // We fire the pixel synchronously in the click handler and let the browser's
+  // native, default navigation proceed immediately — we never preventDefault()
+  // and never delay the redirect with setTimeout(). On mobile, any JS-driven
+  // redirect that fires after the click's synchronous execution (even a 250ms
+  // setTimeout) can lose the "user activation" the OS needs to hand off to the
+  // Telegram app, and is a common cause of clicks that never turn into a real
+  // Telegram open. Firing-then-letting-the-native-tap-navigate keeps that
+  // hand-off intact, and fbq's own beacon call still gets sent in the background.
+  function handleJoin(e){
+    if (e.isTrusted === false) { e.preventDefault(); return; } // block synthetic/programmatic taps only
+    fireLeadIfGenuine();
+    // no preventDefault, no setTimeout — let the anchor's href navigate right now
   }
 
   var btn1 = document.getElementById("joinBtn");
   var btn2 = document.getElementById("joinBtn2");
   if (btn1) btn1.addEventListener("click", handleJoin);
   if (btn2) btn2.addEventListener("click", handleJoin);
+
+  // ---- In-app browser handling (Facebook/Instagram/etc.) ----
+  // A large share of "clicks that never reach Telegram" happen because the ad
+  // click opens inside Facebook's or Instagram's own sandboxed in-app browser,
+  // which frequently refuses to hand off https://t.me links to the real
+  // Telegram app — it just shows a web preview instead, and the join request
+  // never actually gets sent.
+  var ua = navigator.userAgent || "";
+  var isAndroid = /Android/i.test(ua);
+  var isIOS = /iPhone|iPad|iPod/i.test(ua);
+  var isInApp = /FBAN|FBAV|FB_IAB|Instagram|Line\//i.test(ua);
+
+  if (isInApp) {
+    var notice = document.getElementById("inAppNotice");
+    if (notice) {
+      if (isIOS) document.getElementById("inAppMenuHint").textContent = "•••";
+      notice.style.display = "block";
+    }
+
+    if (isAndroid) {
+      // On Android we can force the link open in Chrome, which properly
+      // hands off t.me links to the Telegram app via verified App Links —
+      // this recovers most of the Android in-app-browser losses automatically.
+      var intentLink = "intent://t.me/+IRyGDIWZGSdmZmY1#Intent;scheme=https;package=com.android.chrome;end";
+      [btn1, btn2].forEach(function(btn){
+        if (btn) btn.setAttribute("href", intentLink);
+      });
+    }
+    // On iOS there is no equivalent JS escape — Apple blocks programmatic
+    // hand-off out of an in-app browser, so the banner instruction above is
+    // the only reliable fix; the link itself is left pointing at the normal
+    // https://t.me/... URL as a fallback.
+  }
 })();
 </script>
 </body>
