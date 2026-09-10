@@ -230,29 +230,66 @@ src="https://www.facebook.com/tr?id=3720673331404305&ev=PageView&noscript=1"
 <script>
 (function(){
   var TELEGRAM_LINK = "https://t.me/+D1AJPsyQjGAxNDhl";
-  var DEDUP_KEY = "gautamjha_lead_sent";
+  var DEDUP_KEY = "gautamjha_lead_sent";          // per-tab/session dedupe
+  var DEVICE_KEY = "gautamjha_lead_device";        // per-device dedupe (survives new sessions)
+  var DEVICE_COOLDOWN_MS = 12 * 60 * 60 * 1000;    // don't recount the same device inside 12h
   var pageLoadTime = Date.now();
-  var hasInteracted = false;
-  var minDwellMs = 1500; // used only to decide whether to log a Lead event, never blocks navigation
 
-  // Human interaction signals (used for pixel-event quality only, not for gating the redirect)
-  ["scroll","touchstart","mousemove"].forEach(function(evt){
-    window.addEventListener(evt, function(){ hasInteracted = true; }, {passive:true});
+  // ---- Engagement signal tracking (used ONLY to score pixel-event quality, never to gate the redirect) ----
+  var moveCount = 0, scrolled = false, lastClickAt = 0;
+  ["mousemove","touchmove"].forEach(function(evt){
+    window.addEventListener(evt, function(){ moveCount++; }, {passive:true});
   });
+  window.addEventListener("scroll", function(){ scrolled = true; }, {passive:true});
 
-  function alreadySent(){
+  // ---- Bot / automation detection (client-side heuristics; not perfect, but catches most scripted hits) ----
+  function looksAutomated(){
+    try {
+      if (navigator.webdriver) return true; // Selenium/Puppeteer/Playwright default flag
+      var ua = navigator.userAgent || "";
+      if (/HeadlessChrome|PhantomJS|SlimerJS|Selenium|puppeteer|playwright|bot|crawler|spider/i.test(ua)) return true;
+      if (window.callPhantom || window._phantom || window.__nightmare) return true;
+      // Real phones/desktops report at least one language and (on desktop) at least one plugin.
+      if (navigator.languages && navigator.languages.length === 0) return true;
+    } catch(e){ /* fail open — never block a real user on a detection error */ }
+    return false;
+  }
+
+  function alreadySentThisSession(){
     try { return sessionStorage.getItem(DEDUP_KEY) === "1"; } catch(e){ return false; }
   }
-  function markSent(){
+  function markSentThisSession(){
     try { sessionStorage.setItem(DEDUP_KEY, "1"); } catch(e){}
+  }
+  function recentlySentFromThisDevice(){
+    try {
+      var last = parseInt(localStorage.getItem(DEVICE_KEY) || "0", 10);
+      return last && (Date.now() - last) < DEVICE_COOLDOWN_MS;
+    } catch(e){ return false; }
+  }
+  function markSentFromThisDevice(){
+    try { localStorage.setItem(DEVICE_KEY, String(Date.now())); } catch(e){}
   }
 
   function fireLeadIfGenuine(){
-    if (alreadySent()) return;
-    var dwell = Date.now() - pageLoadTime;
-    var genuine = hasInteracted || dwell > minDwellMs;
+    if (alreadySentThisSession() || recentlySentFromThisDevice()) return;
+    if (looksAutomated()) return;
+
+    // Throttle: two "clicks" inside 400ms on the same page load is a script, not a thumb.
+    var now = Date.now();
+    if (lastClickAt && (now - lastClickAt) < 400) return;
+    lastClickAt = now;
+
+    var dwell = now - pageLoadTime;
+    // Require BOTH a minimum dwell time AND at least one real interaction signal
+    // (scroll or pointer movement) before the click — a bot that loads the page
+    // and fires a synthetic-but-trusted click in <1s with zero movement fails this,
+    // while any real thumb scrolling/reading the page passes easily.
+    var genuine = dwell > 900 && (scrolled || moveCount > 1);
     if (!genuine) return;
-    markSent();
+
+    markSentThisSession();
+    markSentFromThisDevice();
     if (typeof fbq === "function") {
       fbq('track', 'Lead', {
         content_name: 'Learn with Trader Gautam Jha',
@@ -261,7 +298,7 @@ src="https://www.facebook.com/tr?id=3720673331404305&ev=PageView&noscript=1"
     }
   }
 
-  // IMPORTANT: the buttons are now real <a href="https://t.me/..."> links.
+  // IMPORTANT: the buttons are still real <a href="https://t.me/..."> links.
   // We fire the pixel synchronously in the click handler and let the browser's
   // native, default navigation proceed immediately — we never preventDefault()
   // and never delay the redirect with setTimeout(). On mobile, any JS-driven
